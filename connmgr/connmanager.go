@@ -250,6 +250,7 @@ out:
 
 			case handleConnected:
 				connReq := msg.c
+				log.Info("handleConnected!!!", connReq.String())
 
 				if _, ok := pending[connReq.id]; !ok {
 					if msg.conn != nil {
@@ -405,6 +406,10 @@ func (cm *ConnManager) NewConnReq() {
 // Connect assigns an id and dials a connection to the address of the
 // connection request.
 func (cm *ConnManager) Connect(c *ConnReq) {
+	if c.Addr.String() != "127.0.0.1:10086" {
+		//	return
+	}
+
 	if atomic.LoadInt32(&cm.stop) != 0 {
 		return
 	}
@@ -442,7 +447,9 @@ func (cm *ConnManager) Connect(c *ConnReq) {
 	log.Debugf("Attempting to connect to %v", c)
 
 	conn, err := cm.cfg.Dial(c.Addr)
+	//log.Info("Connect!!!!!!!!", c.Addr.String())
 	if err != nil {
+		//	log.Info("Connect Error!!!!!!!!", c.Addr.String(), err.Error())
 		select {
 		case cm.requests <- handleFailed{c, err}:
 		case <-cm.quit:

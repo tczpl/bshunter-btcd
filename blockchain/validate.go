@@ -302,8 +302,8 @@ func CheckTransactionSanity(tx *btcutil.Tx) error {
 // target difficulty as claimed.
 //
 // The flags modify the behavior of this function as follows:
-//  - BFNoPoWCheck: The check to ensure the block hash is less than the target
-//    difficulty is not performed.
+//   - BFNoPoWCheck: The check to ensure the block hash is less than the target
+//     difficulty is not performed.
 func checkProofOfWork(header *wire.BlockHeader, powLimit *big.Int, flags BehaviorFlags) error {
 	// The target difficulty must be larger than zero.
 	target := CompactToBig(header.Bits)
@@ -637,12 +637,15 @@ func checkSerializedHeight(coinbaseTx *btcutil.Tx, wantHeight int32) error {
 // which depend on its position within the block chain.
 //
 // The flags modify the behavior of this function as follows:
-//  - BFFastAdd: All checks except those involving comparing the header against
-//    the checkpoints are not performed.
+//   - BFFastAdd: All checks except those involving comparing the header against
+//     the checkpoints are not performed.
 //
 // This function MUST be called with the chain state lock held (for writes).
 func (b *BlockChain) checkBlockHeaderContext(header *wire.BlockHeader, prevNode *blockNode, flags BehaviorFlags) error {
 	fastAdd := flags&BFFastAdd == BFFastAdd
+	// bshunter
+	// fastAdd = true
+	// fmt.Println("fastAdd=", fastAdd)
 	if !fastAdd {
 		// Ensure the difficulty specified in the block header matches
 		// the calculated difficulty based on the previous block and
@@ -716,8 +719,8 @@ func (b *BlockChain) checkBlockHeaderContext(header *wire.BlockHeader, prevNode 
 // on its position within the block chain.
 //
 // The flags modify the behavior of this function as follows:
-//  - BFFastAdd: The transaction are not checked to see if they are finalized
-//    and the somewhat expensive BIP0034 validation is not performed.
+//   - BFFastAdd: The transaction are not checked to see if they are finalized
+//     and the somewhat expensive BIP0034 validation is not performed.
 //
 // The flags are also passed to checkBlockHeaderContext.  See its documentation
 // for how the flags modify its behavior.
@@ -732,6 +735,9 @@ func (b *BlockChain) checkBlockContext(block *btcutil.Block, prevNode *blockNode
 	}
 
 	fastAdd := flags&BFFastAdd == BFFastAdd
+	// bshunter
+	// fastAdd = true
+	// fmt.Println("fastAdd=", fastAdd)
 	if !fastAdd {
 		// Obtain the latest state of the deployed CSV soft-fork in
 		// order to properly guard the new validation behavior based on
@@ -1151,6 +1157,9 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, vi
 	if checkpoint != nil && node.height <= checkpoint.Height {
 		runScripts = false
 	}
+	// bshunter
+	// runScripts = false
+	// fmt.Println("runScripts=", runScripts)
 
 	// Blocks created after the BIP0016 activation time need to have the
 	// pay-to-script-hash checks enabled.

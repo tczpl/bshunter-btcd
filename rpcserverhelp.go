@@ -589,7 +589,7 @@ var helpDescsEnUS = map[string]string{
 
 	// SubmitBlockCmd help.
 	"submitblock--synopsis":   "Attempts to submit a new serialized, hex-encoded block to the network.",
-	"submitblock-hexblock":    "Serialized, hex-encoded block",
+	"submitblock-hebshunter":  "Serialized, hex-encoded block",
 	"submitblock-options":     "This parameter is currently ignored",
 	"submitblock--condition0": "Block successfully submitted",
 	"submitblock--condition1": "Block rejected",

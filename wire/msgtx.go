@@ -443,6 +443,7 @@ func (msg *MsgTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error
 	if err != nil {
 		return err
 	}
+	// fmt.Println("BtcDecode count", count)
 
 	// A count of zero (meaning no TxIn's to the uninitiated) means that the
 	// value is a TxFlagMarker, and hence indicates the presence of a flag.

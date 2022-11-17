@@ -71,6 +71,10 @@ func (b *BlockChain) blockExists(hash *chainhash.Hash) (bool, error) {
 	return exists, err
 }
 
+func (b *BlockChain) BlockExists(hash *chainhash.Hash) (bool, error) {
+	return b.blockExists(hash)
+}
+
 // processOrphans determines if there are any orphans which depend on the passed
 // block hash (they are no longer orphans if true) and potentially accepts them.
 // It repeats the process for the newly accepted blocks (to detect further
@@ -145,6 +149,9 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 
 	fastAdd := flags&BFFastAdd == BFFastAdd
 
+	// bshunter
+	// fastAdd = true
+	// fmt.Println("fastAdd=", fastAdd)
 	blockHash := block.Hash()
 	log.Tracef("Processing block %v", blockHash)
 
@@ -154,7 +161,7 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 		return false, false, err
 	}
 	if exists {
-		str := fmt.Sprintf("already have block %v", blockHash)
+		str := fmt.Sprintf("already have block !!! %v", blockHash)
 		return false, false, ruleError(ErrDuplicateBlock, str)
 	}
 
@@ -217,7 +224,7 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 		return false, false, err
 	}
 	if !prevHashExists {
-		log.Infof("Adding orphan block %v with parent %v", blockHash, prevHash)
+		log.Debug("Adding orphan block %v with parent %v", blockHash, prevHash)
 		b.addOrphanBlock(block)
 
 		return false, true, nil
@@ -240,5 +247,8 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 
 	log.Debugf("Accepted block %v", blockHash)
 
+	if block.Height() > 200000 {
+		//time.Sleep(time.Duration(100) * time.Millisecond)
+	}
 	return isMainChain, false, nil
 }

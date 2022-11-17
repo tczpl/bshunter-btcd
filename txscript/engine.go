@@ -8,6 +8,7 @@ package txscript
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 
@@ -446,6 +447,7 @@ func (vm *Engine) Step() (done bool, err error) {
 		return true, err
 	}
 	opcode := &vm.scripts[vm.scriptIdx][vm.scriptOff]
+	//log.Info("opcode", opcode.opcode.name)
 	vm.scriptOff++
 
 	// Execute the opcode while taking into account several things such as
@@ -530,6 +532,13 @@ func (vm *Engine) Step() (done bool, err error) {
 func (vm *Engine) Execute() (err error) {
 	done := false
 	for !done {
+		/*
+			toLog := ""
+			for _, oneBytes := range vm.dstack.stk {
+				toLog += hex.EncodeToString(oneBytes) + ";"
+			}
+			log.Info("vm stack", toLog)
+		*/
 		log.Tracef("%v", newLogClosure(func() string {
 			dis, err := vm.DisasmPC()
 			if err != nil {
@@ -558,6 +567,54 @@ func (vm *Engine) Execute() (err error) {
 	}
 
 	return vm.CheckErrorCondition(true)
+}
+
+func (vm *Engine) ExecuteBSHunter() (stacks []string, opcodes []string, err error) {
+	done := false
+	stacks = make([]string, 0)
+	opcodes = make([]string, 0)
+	for !done {
+		log.Tracef("%v", newLogClosure(func() string {
+			dis, err := vm.DisasmPC()
+			if err != nil {
+				return fmt.Sprintf("stepping (%v)", err)
+			}
+			return fmt.Sprintf("stepping %v", dis)
+		}))
+		opcode := &vm.scripts[vm.scriptIdx][vm.scriptOff]
+
+		done, err = vm.Step()
+		if vm.isBranchExecuting() || opcode.isConditional() {
+			//if !vm.isBranchExecuting() &
+			opcodes = append(opcodes, opcode.opcode.name)
+			stack := ""
+			for _, oneBytes := range vm.dstack.stk {
+				stack += hex.EncodeToString(oneBytes) + ";"
+			}
+			stacks = append(stacks, stack)
+			//log.Info("opcode", opcode.opcode.name)
+			//log.Info("stackAfter", stack)
+		}
+
+		if err != nil {
+			return nil, nil, err
+		}
+		log.Tracef("%v", newLogClosure(func() string {
+			var dstr, astr string
+
+			// if we're tracing, dump the stacks.
+			if vm.dstack.Depth() != 0 {
+				dstr = "Stack:\n" + vm.dstack.String()
+			}
+			if vm.astack.Depth() != 0 {
+				astr = "AltStack:\n" + vm.astack.String()
+			}
+
+			return dstr + astr
+		}))
+	}
+
+	return stacks, opcodes, vm.CheckErrorCondition(true)
 }
 
 // subScript returns the script since the last OP_CODESEPARATOR.

@@ -692,6 +692,183 @@ func createVinList(mtx *wire.MsgTx) []btcjson.Vin {
 	return vinList
 }
 
+func createBSHunterVinList(mtx *wire.MsgTx, txIndex *indexers.TxIndex, db database.DB, params *chaincfg.Params, bc *blockchain.BlockChain, bshunter *BSHunter) []btcjson.BSHunterVin {
+	// Coinbase transactions only have a single txin by definition.
+	vinList := make([]btcjson.BSHunterVin, len(mtx.TxIn))
+	if blockchain.IsCoinBaseTx(mtx) {
+		txIn := mtx.TxIn[0]
+		vinList[0].Coinbase = hex.EncodeToString(txIn.SignatureScript)
+		vinList[0].Sequence = txIn.Sequence
+		vinList[0].Witness = witnessToHex(txIn.Witness)
+		return vinList
+	}
+
+	for i, txIn := range mtx.TxIn {
+		// The disassembled string will contain [error] inline
+		// if the script doesn't fully parse, so ignore the
+		// error here.
+		disbuf, _ := txscript.DisasmString(txIn.SignatureScript)
+
+		vinEntry := &vinList[i]
+		vinEntry.Txid = txIn.PreviousOutPoint.Hash.String()
+		vinEntry.Vout = txIn.PreviousOutPoint.Index
+		vinEntry.Sequence = txIn.Sequence
+		vinEntry.ScriptSig = &btcjson.ScriptSig{
+			Asm: disbuf,
+			Hex: hex.EncodeToString(txIn.SignatureScript),
+		}
+
+		if mtx.HasWitness() {
+			vinEntry.Witness = witnessToHex(txIn.Witness)
+		}
+
+		// BSHunter !!!!!!!!!!
+		originHash := txIn.PreviousOutPoint.Hash
+		blockRegion, err := txIndex.TxBlockRegion(&originHash)
+		//btcdLog.Info(blockRegion, err)
+
+		// Load the raw transaction bytes from the database.
+		var txBytes []byte
+		db.View(func(dbTx database.Tx) error {
+			var err error
+			txBytes, err = dbTx.FetchBlockRegion(blockRegion)
+			return err
+		})
+		// Deserialize the transaction
+		newMsgTx, err := decodeTx(txBytes)
+		if err != nil {
+			btcdLog.Info("decodeTx err", err)
+		} else if len(newMsgTx.TxIn)+len(newMsgTx.TxOut) == 0 {
+			btcdLog.Info("index err", hex.EncodeToString(txBytes))
+			blockHash := blockRegion.Hash
+			block, _ := bshunter.RawBlockByHash[blockHash.String()]
+			txns := block.Transactions()
+			blockHeader := block.MsgBlock().Header
+			btcdLog.Info("Read Block", "txns.len", len(txns))
+			for _, tx := range txns {
+				blockHeight := int32(0)
+				rawTxn, _ := createBSHunterTxRawResult(params, tx.MsgTx(),
+					tx.Hash().String(), &blockHeader, blockHash.String(),
+					blockHeight, blockHeight)
+				if rawTxn.Txid == originHash.String() {
+					vinEntry.VoutContent = rawTxn.Vout[vinEntry.Vout]
+				}
+			}
+		} else {
+			filterAddrMap := make(map[string]struct{})
+			vouts := createBSHunterVoutList(newMsgTx, params, filterAddrMap)
+			//btcdLog.Info(vinEntry.Txid, "len", len(txBytes), vinEntry.Vout, "of", len(vouts))
+			vinEntry.VoutContent = vouts[vinEntry.Vout]
+		}
+	}
+
+	return vinList
+}
+
+func decodeTx(serializedTx []byte) (*wire.MsgTx, error) {
+	var msgTx wire.MsgTx
+	witnessErr := msgTx.Deserialize(bytes.NewReader(serializedTx))
+	//btcdLog.Info("Deserialize", msgTx.TxHash())
+	if witnessErr != nil {
+		legacyErr := msgTx.DeserializeNoWitness(bytes.NewReader(serializedTx))
+		//btcdLog.Info("txbytes str", hex.EncodeToString(serializedTx))
+		//btcdLog.Info("DeserializeNoWitness", msgTx.TxHash(), msgTx.LockTime, msgTx.TxIn, msgTx.TxOut, msgTx.Version)
+		if legacyErr != nil {
+			return nil, legacyErr
+		}
+	}
+
+	return &msgTx, nil
+}
+
+func createBSHunterVinListWithCache(mtx *wire.MsgTx, txIndex *indexers.TxIndex, db database.DB, params *chaincfg.Params, bshunter *BSHunter) []btcjson.BSHunterVin {
+	// Coinbase transactions only have a single txin by definition.
+	vinList := make([]btcjson.BSHunterVin, len(mtx.TxIn))
+	if blockchain.IsCoinBaseTx(mtx) {
+		txIn := mtx.TxIn[0]
+		vinList[0].Coinbase = hex.EncodeToString(txIn.SignatureScript)
+		vinList[0].Sequence = txIn.Sequence
+		vinList[0].Witness = witnessToHex(txIn.Witness)
+		return vinList
+	}
+
+	for i, txIn := range mtx.TxIn {
+		// The disassembled string will contain [error] inline
+		// if the script doesn't fully parse, so ignore the
+		// error here.
+		disbuf, _ := txscript.DisasmString(txIn.SignatureScript)
+
+		vinEntry := &vinList[i]
+		vinEntry.Txid = txIn.PreviousOutPoint.Hash.String()
+		vinEntry.Vout = txIn.PreviousOutPoint.Index
+		vinEntry.Sequence = txIn.Sequence
+		vinEntry.ScriptSig = &btcjson.ScriptSig{
+			Asm: disbuf,
+			Hex: hex.EncodeToString(txIn.SignatureScript),
+		}
+
+		if mtx.HasWitness() {
+			vinEntry.Witness = witnessToHex(txIn.Witness)
+		}
+
+		// BSHunter !!!!!!!!!!
+
+		// twotier
+		// tryGet, ok := bshunter.CachePopVoutTwoTier(vinEntry.Txid, int(vinEntry.Vout))
+
+		// only disk
+		// ok := false
+
+		// three disk
+		tryGet, ok := bshunter.CachePopVout(vinEntry.Txid, int(vinEntry.Vout))
+		if ok {
+			vinEntry.VoutContent = tryGet
+		} else {
+			//btcdLog.Info("Cache Missed!!!!!!!!!!")
+			originHash := txIn.PreviousOutPoint.Hash
+			blockRegion, err := txIndex.TxBlockRegion(&originHash)
+			btcdLog.Debug("!!!!!!", blockRegion, err)
+
+			// Load the raw transaction bytes from the database.
+			var txBytes []byte
+			db.View(func(dbTx database.Tx) error {
+				var err error
+				txBytes, err = dbTx.FetchBlockRegion(blockRegion)
+				return err
+			})
+
+			newMsgTx, err := decodeTx(txBytes)
+			if err != nil {
+				btcdLog.Info("decodeTx err", err)
+			} else {
+				vinEntry.VoutContent = getMtxVout(newMsgTx, params, vinEntry.Vout)
+			}
+		}
+	}
+
+	return vinList
+}
+
+func getTxOutFromDb(outpoint wire.OutPoint, txIndex *indexers.TxIndex, db database.DB) *wire.TxOut {
+	originHash := outpoint.Hash
+	blockRegion, err := txIndex.TxBlockRegion(&originHash)
+	btcdLog.Debug("!!!!!!", blockRegion, err)
+
+	// Load the raw transaction bytes from the database.
+	var txBytes []byte
+	db.View(func(dbTx database.Tx) error {
+		var err error
+		txBytes, err = dbTx.FetchBlockRegion(blockRegion)
+		return err
+	})
+
+	newMsgTx, err := decodeTx(txBytes)
+	if err != nil {
+		btcdLog.Info("decodeTx err", err)
+	}
+	return newMsgTx.TxOut[outpoint.Index]
+}
+
 // createVoutList returns a slice of JSON objects for the outputs of the passed
 // transaction.
 func createVoutList(mtx *wire.MsgTx, chainParams *chaincfg.Params, filterAddrMap map[string]struct{}) []btcjson.Vout {
@@ -744,6 +921,84 @@ func createVoutList(mtx *wire.MsgTx, chainParams *chaincfg.Params, filterAddrMap
 	return voutList
 }
 
+func createBSHunterVoutList(mtx *wire.MsgTx, chainParams *chaincfg.Params, filterAddrMap map[string]struct{}) []btcjson.BSHunterVout {
+	voutList := make([]btcjson.BSHunterVout, 0, len(mtx.TxOut))
+	for i, v := range mtx.TxOut {
+		// The disassembled string will contain [error] inline if the
+		// script doesn't fully parse, so ignore the error here.
+		disbuf, _ := txscript.DisasmString(v.PkScript)
+
+		// Ignore the error here since an error means the script
+		// couldn't parse and there is no additional information about
+		// it anyways.
+		scriptClass, addrs, reqSigs, _ := txscript.ExtractPkScriptAddrs(
+			v.PkScript, chainParams)
+
+		// Encode the addresses while checking if the address passes the
+		// filter when needed.
+		passesFilter := len(filterAddrMap) == 0
+		encodedAddrs := make([]string, len(addrs))
+		for j, addr := range addrs {
+			encodedAddr := addr.EncodeAddress()
+			encodedAddrs[j] = encodedAddr
+
+			// No need to check the map again if the filter already
+			// passes.
+			if passesFilter {
+				continue
+			}
+			if _, exists := filterAddrMap[encodedAddr]; exists {
+				passesFilter = true
+			}
+		}
+
+		if !passesFilter {
+			continue
+		}
+
+		var vout btcjson.BSHunterVout
+		vout.N = uint32(i)
+		vout.Value = btcutil.Amount(v.Value).ToBTC()
+		vout.ScriptPubKey.Addresses = encodedAddrs
+		vout.ScriptPubKey.Asm = disbuf
+		vout.ScriptPubKey.Hex = hex.EncodeToString(v.PkScript)
+		vout.ScriptPubKey.Type = scriptClass.String()
+		vout.ScriptPubKey.ReqSigs = int32(reqSigs)
+		vout.ScriptPubKey.Unspendable = txscript.IsUnspendable(v.PkScript)
+
+		voutList = append(voutList, vout)
+	}
+
+	return voutList
+}
+
+func getMtxVout(mtx *wire.MsgTx, chainParams *chaincfg.Params, voutIndex uint32) btcjson.BSHunterVout {
+	v := mtx.TxOut[voutIndex]
+
+	disbuf, _ := txscript.DisasmString(v.PkScript)
+
+	scriptClass, addrs, reqSigs, _ := txscript.ExtractPkScriptAddrs(
+		v.PkScript, chainParams)
+
+	encodedAddrs := make([]string, len(addrs))
+	for j, addr := range addrs {
+		encodedAddr := addr.EncodeAddress()
+		encodedAddrs[j] = encodedAddr
+	}
+
+	var vout btcjson.BSHunterVout
+	vout.N = uint32(voutIndex)
+	vout.Value = btcutil.Amount(v.Value).ToBTC()
+	vout.ScriptPubKey.Addresses = encodedAddrs
+	vout.ScriptPubKey.Asm = disbuf
+	vout.ScriptPubKey.Hex = hex.EncodeToString(v.PkScript)
+	vout.ScriptPubKey.Type = scriptClass.String()
+	vout.ScriptPubKey.ReqSigs = int32(reqSigs)
+	vout.ScriptPubKey.Unspendable = txscript.IsUnspendable(v.PkScript)
+
+	return vout
+}
+
 // createTxRawResult converts the passed transaction and associated parameters
 // to a raw transaction JSON object.
 func createTxRawResult(chainParams *chaincfg.Params, mtx *wire.MsgTx,
@@ -774,6 +1029,142 @@ func createTxRawResult(chainParams *chaincfg.Params, mtx *wire.MsgTx,
 		txReply.Blocktime = blkHeader.Timestamp.Unix()
 		txReply.BlockHash = blkHash
 		txReply.Confirmations = uint64(1 + chainHeight - blkHeight)
+	}
+
+	return txReply, nil
+}
+
+func createBSHunterTxRawResult(chainParams *chaincfg.Params, mtx *wire.MsgTx,
+	txHash string, blkHeader *wire.BlockHeader, blkHash string,
+	blkHeight int32, chainHeight int32) (*btcjson.BSHunterTxRawResult, error) {
+
+	mtxHex, err := messageToHex(mtx)
+	if err != nil {
+		return nil, err
+	}
+
+	txReply := &btcjson.BSHunterTxRawResult{
+		Hex:      mtxHex,
+		Txid:     txHash,
+		Hash:     mtx.WitnessHash().String(),
+		Size:     int32(mtx.SerializeSize()),
+		Vsize:    int32(mempool.GetTxVirtualSize(btcutil.NewTx(mtx))),
+		Weight:   int32(blockchain.GetTransactionWeight(btcutil.NewTx(mtx))),
+		Vout:     createBSHunterVoutList(mtx, chainParams, nil),
+		Version:  uint32(mtx.Version),
+		LockTime: mtx.LockTime,
+	}
+	return txReply, nil
+}
+
+func createBSHunterTxResult(chainParams *chaincfg.Params, mtx *wire.MsgTx,
+	txHash string, blkHeader *wire.BlockHeader, blkHash string,
+	blkHeight int32, chainHeight int32, txIndex *indexers.TxIndex, db database.DB, bshunter *BSHunter) (*btcjson.BSHunterTxResult, error) {
+
+	mtxHex, err := messageToHex(mtx)
+	if err != nil {
+		return nil, err
+	}
+	bc := bshunter.Server.GetChain()
+
+	txReply := &btcjson.BSHunterTxResult{
+		Hex:      mtxHex,
+		Txid:     txHash,
+		Hash:     mtx.WitnessHash().String(),
+		Size:     int32(mtx.SerializeSize()),
+		Vsize:    int32(mempool.GetTxVirtualSize(btcutil.NewTx(mtx))),
+		Weight:   int32(blockchain.GetTransactionWeight(btcutil.NewTx(mtx))),
+		Vin:      createBSHunterVinList(mtx, txIndex, db, chainParams, bc, bshunter),
+		Vout:     createBSHunterVoutList(mtx, chainParams, nil),
+		Version:  uint32(mtx.Version),
+		LockTime: mtx.LockTime,
+	}
+
+	if blkHeader != nil {
+		// This is not a typo, they are identical in bitcoind as well.
+		txReply.Time = blkHeader.Timestamp.Unix()
+		txReply.Blocktime = blkHeader.Timestamp.Unix()
+		txReply.BlockHash = blkHash
+	}
+
+	return txReply, nil
+}
+
+func createBSHunterTxResultWithCache(chainParams *chaincfg.Params, mtx *wire.MsgTx,
+	txHash string, blkHeader *wire.BlockHeader, blkHash string,
+	blkHeight int32, chainHeight int32, txIndex *indexers.TxIndex, db database.DB, bshunter *BSHunter) (*btcjson.BSHunterTxResult, error) {
+
+	mtxHex, err := messageToHex(mtx)
+	if err != nil {
+		return nil, err
+	}
+
+	if txHash == "f3c51a8f10cd68652bf236a000f8dfc225c0b72adad406771303b4e8596f897f" {
+		btcdLog.Info("createBSHunterTxResultWithCache for", txHash)
+		for i, txIn := range mtx.TxIn {
+			theBool := mtx.HasWitness()
+			btcdLog.Info("txIn", i, "len(witness)", len(txIn.Witness), "theBool", theBool)
+		}
+	}
+
+	txReply := &btcjson.BSHunterTxResult{
+		Hex:      mtxHex,
+		Txid:     txHash,
+		Hash:     mtx.WitnessHash().String(),
+		Size:     int32(mtx.SerializeSize()),
+		Vsize:    int32(mempool.GetTxVirtualSize(btcutil.NewTx(mtx))),
+		Weight:   int32(blockchain.GetTransactionWeight(btcutil.NewTx(mtx))),
+		Vin:      createBSHunterVinListWithCache(mtx, txIndex, db, chainParams, bshunter),
+		Vout:     createBSHunterVoutList(mtx, chainParams, nil),
+		Version:  uint32(mtx.Version),
+		LockTime: mtx.LockTime,
+	}
+
+	if blkHeader != nil {
+		// This is not a typo, they are identical in bitcoind as well.
+		txReply.Time = blkHeader.Timestamp.Unix()
+		txReply.Blocktime = blkHeader.Timestamp.Unix()
+		txReply.BlockHash = blkHash
+	}
+
+	return txReply, nil
+}
+
+func createBSHunterTxResultForConfirmed(chainParams *chaincfg.Params, mtx *wire.MsgTx,
+	txHash string, blkHeader *wire.BlockHeader, blkHash string,
+	blkHeight int32, chainHeight int32, txIndex *indexers.TxIndex, db database.DB, bshunter *BSHunter) (*btcjson.BSHunterTxResult, error) {
+
+	mtxHex, err := messageToHex(mtx)
+	if err != nil {
+		return nil, err
+	}
+
+	if txHash == "f3c51a8f10cd68652bf236a000f8dfc225c0b72adad406771303b4e8596f897f" {
+		btcdLog.Info("createBSHunterTxResultWithCache for", txHash)
+		for i, txIn := range mtx.TxIn {
+			theBool := mtx.HasWitness()
+			btcdLog.Info("txIn", i, "len(witness)", len(txIn.Witness), "theBool", theBool)
+		}
+	}
+
+	txReply := &btcjson.BSHunterTxResult{
+		Hex:      mtxHex,
+		Txid:     txHash,
+		Hash:     mtx.WitnessHash().String(),
+		Size:     int32(mtx.SerializeSize()),
+		Vsize:    int32(mempool.GetTxVirtualSize(btcutil.NewTx(mtx))),
+		Weight:   int32(blockchain.GetTransactionWeight(btcutil.NewTx(mtx))),
+		Vin:      createBSHunterVinListWithCache(mtx, txIndex, db, chainParams, bshunter),
+		Vout:     createBSHunterVoutList(mtx, chainParams, nil),
+		Version:  uint32(mtx.Version),
+		LockTime: mtx.LockTime,
+	}
+
+	if blkHeader != nil {
+		// This is not a typo, they are identical in bitcoind as well.
+		txReply.Time = blkHeader.Timestamp.Unix()
+		txReply.Blocktime = blkHeader.Timestamp.Unix()
+		txReply.BlockHash = blkHash
 	}
 
 	return txReply, nil

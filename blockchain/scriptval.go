@@ -5,6 +5,7 @@
 package blockchain
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"runtime"
@@ -21,6 +22,15 @@ type txValidateItem struct {
 	txIn      *wire.TxIn
 	tx        *btcutil.Tx
 	sigHashes *txscript.TxSigHashes
+}
+
+func NewTxValidateItem(txInIndex int, txIn *wire.TxIn, tx *btcutil.Tx, sigHashes *txscript.TxSigHashes) *txValidateItem {
+	return &txValidateItem{
+		txInIndex: 0,
+		txIn:      txIn,
+		tx:        tx,
+		sigHashes: sigHashes,
+	}
 }
 
 // txValidator provides a type which asynchronously validates transaction
@@ -70,6 +80,7 @@ out:
 			}
 
 			// Create a new script engine for the script pair.
+			// TODO here !!!
 			sigScript := txIn.SignatureScript
 			witness := txIn.Witness
 			pkScript := utxo.PkScript()
@@ -316,4 +327,100 @@ func checkBlockScripts(block *btcutil.Block, utxoView *UtxoViewpoint,
 	}
 
 	return nil
+}
+
+type Spending struct {
+	Utxo    string   `json:"utxo"`
+	Stacks  []string `json:"stacks"`
+	Opcodes []string `json:"opcodes"`
+}
+
+func CheckBlockScriptsBSHunter(block *btcutil.Block, txids []string, txOuts map[string]*wire.TxOut,
+	scriptFlags txscript.ScriptFlags, sigCache *txscript.SigCache,
+	hashCache *txscript.HashCache) []byte {
+
+	// First determine if segwit is active according to the scriptFlags. If
+	// it isn't then we don't need to interact with the HashCache.
+	segwitActive := scriptFlags&txscript.ScriptVerifyWitness == txscript.ScriptVerifyWitness
+
+	// Collect all of the transaction inputs and required information for
+	// validation for all transactions in the block into a single slice.
+	numInputs := 0
+	for _, tx := range block.Transactions() {
+		numInputs += len(tx.MsgTx().TxIn)
+	}
+	spendings := make([]*Spending, 0)
+
+	for _, tx := range block.Transactions() {
+		hash := tx.Hash()
+		txid := tx.Hash().String()
+		found := false
+		for _, targetTxid := range txids {
+			if txid == targetTxid {
+				found = true
+				break
+			}
+		}
+		if !found {
+			continue
+		}
+
+		// If the HashCache is present, and it doesn't yet contain the
+		// partial sighashes for this transaction, then we add the
+		// sighashes for the transaction. This allows us to take
+		// advantage of the potential speed savings due to the new
+		// digest algorithm (BIP0143).
+		if segwitActive && tx.HasWitness() && hashCache != nil &&
+			!hashCache.ContainsHashes(hash) {
+
+			hashCache.AddSigHashes(tx.MsgTx())
+		}
+
+		var cachedHashes *txscript.TxSigHashes
+		if segwitActive && tx.HasWitness() {
+			if hashCache != nil {
+				cachedHashes, _ = hashCache.GetSigHashes(hash)
+			} else {
+				cachedHashes = txscript.NewTxSigHashes(tx.MsgTx())
+			}
+		}
+		sigHashes := cachedHashes
+
+		for txInIdx, txIn := range tx.MsgTx().TxIn {
+			// Skip coinbases.
+			if txIn.PreviousOutPoint.Index == math.MaxUint32 {
+				continue
+			}
+
+			// Create a new script engine for the script pair.
+			// sigScript := txIn.SignatureScript
+			// witness := txIn.Witness
+			outpointstr := txIn.PreviousOutPoint.String()
+			pkScript := txOuts[outpointstr].PkScript
+			inputAmount := txOuts[outpointstr].Value
+			vm, err := txscript.NewEngine(pkScript, tx.MsgTx(),
+				txInIdx, scriptFlags, sigCache, sigHashes,
+				inputAmount)
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			// Execute the script pair.
+			fmt.Println("spending", outpointstr)
+			stacks, opcodes, err := vm.ExecuteBSHunter()
+			if err != nil {
+				fmt.Println("exec err", err)
+				panic("exec err")
+			}
+			// fmt.Println(stacks, opcodes)
+			spendings = append(spendings, &Spending{
+				outpointstr,
+				stacks,
+				opcodes,
+			})
+		}
+	}
+	fmt.Println("len", len(spendings))
+	marshalledResult, _ := json.Marshal(spendings)
+	return marshalledResult
 }

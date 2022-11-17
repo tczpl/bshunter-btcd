@@ -1681,6 +1681,7 @@ func opcode0NotEqual(op *parsedOpcode, vm *Engine) error {
 //
 // Stack transformation: [... x1 x2] -> [... x1+x2]
 func opcodeAdd(op *parsedOpcode, vm *Engine) error {
+	//log.Info("opcodeAdd")
 	v0, err := vm.dstack.PopInt()
 	if err != nil {
 		return err
@@ -1691,6 +1692,7 @@ func opcodeAdd(op *parsedOpcode, vm *Engine) error {
 		return err
 	}
 
+	//log.Info("opcodeAdd", v0, v1)
 	vm.dstack.PushInt(v0 + v1)
 	return nil
 }

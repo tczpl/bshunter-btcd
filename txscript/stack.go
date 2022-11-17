@@ -82,6 +82,7 @@ func (s *stack) PopByteArray() ([]byte, error) {
 // Stack transformation: [... x1 x2 x3] -> [... x1 x2]
 func (s *stack) PopInt() (scriptNum, error) {
 	so, err := s.PopByteArray()
+	//log.Info("s.PopByteArray()", so)
 	if err != nil {
 		return 0, err
 	}

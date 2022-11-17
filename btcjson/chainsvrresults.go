@@ -15,6 +15,316 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
+type BSHunterGetBlockResult struct {
+	Hash         string             `json:"hash"`
+	StrippedSize int32              `json:"strippedsize"`
+	Size         int32              `json:"size"`
+	Weight       int32              `json:"weight"`
+	Height       int64              `json:"height"`
+	Version      int32              `json:"version"`
+	Transactions []BSHunterTxResult `json:"txs,omitempty"` // Note: this field is always empty when verbose != 2.
+	Time         int64              `json:"time"`
+	Nonce        uint32             `json:"nonce"`
+	Bits         string             `json:"bits"`
+	Difficulty   float64            `json:"difficulty"`
+}
+
+type BSHunterTxResult struct {
+	Hex       string         `json:"hex"`
+	Txid      string         `json:"txid"`
+	Hash      string         `json:"hash,omitempty"`
+	Size      int32          `json:"size,omitempty"`
+	Vsize     int32          `json:"vsize,omitempty"`
+	Weight    int32          `json:"weight,omitempty"`
+	Version   uint32         `json:"version"`
+	LockTime  uint32         `json:"locktime"`
+	Vin       []BSHunterVin  `json:"vin"`
+	Vout      []BSHunterVout `json:"vout"`
+	BlockHash string         `json:"blockhash,omitempty"`
+	Time      int64          `json:"time,omitempty"`
+	Blocktime int64          `json:"blocktime,omitempty"`
+}
+
+type BSHunterVin struct {
+	Coinbase             string                      `json:"coinbase"`
+	Txid                 string                      `json:"txid"`
+	Vout                 uint32                      `json:"vout"`
+	VoutContent          BSHunterVout                `json:"voutContent"`
+	ScriptSig            *ScriptSig                  `json:"scriptSig"`
+	Sequence             uint32                      `json:"sequence"`
+	Witness              []string                    `json:"txinwitness"`
+	DecodedScript        *BSHunterDecodeScriptResult `json:"decodedScript,omitempty"`
+	DecodedWitnessScript *BSHunterDecodeScriptResult `json:"decodedWitnessScript,omitempty"`
+}
+
+// IsCoinBase returns a bool to show if a Vin is a Coinbase one or not.
+func (v *BSHunterVin) IsCoinBase() bool {
+	return len(v.Coinbase) > 0
+}
+
+// HasWitness returns a bool to show if a Vin has any witness data associated
+// with it or not.
+func (v *BSHunterVin) HasWitness() bool {
+	return len(v.Witness) > 0
+}
+
+func (v *BSHunterVin) ScriptType() []string {
+	var ret []string
+	ret = append(ret, v.VoutContent.ScriptPubKey.Type)
+	if v.VoutContent.ScriptPubKey.Type == "scripthash" {
+		ret = append(ret, v.DecodedScript.Type)
+		if v.DecodedScript.Type == "witness_v0_scripthash" {
+			ret = append(ret, v.DecodedWitnessScript.Type)
+		}
+
+	} else if v.VoutContent.ScriptPubKey.Type == "witness_v0_scripthash" {
+		ret = append(ret, v.DecodedWitnessScript.Type)
+	}
+
+	return ret
+}
+
+// MarshalJSON provides a custom Marshal method for BSHunterVin.
+func (v *BSHunterVin) MarshalJSON() ([]byte, error) {
+	if v.IsCoinBase() {
+		coinbaseStruct := struct {
+			Coinbase string   `json:"coinbase"`
+			Sequence uint32   `json:"sequence"`
+			Witness  []string `json:"witness,omitempty"`
+		}{
+			Coinbase: v.Coinbase,
+			Sequence: v.Sequence,
+			Witness:  v.Witness,
+		}
+		return json.Marshal(coinbaseStruct)
+	}
+
+	toMarshal := struct {
+		Txid                 string                      `json:"txid"`
+		Vout                 uint32                      `json:"vout"`
+		VoutContent          *BSHunterVout               `json:"voutContent"`
+		ScriptSig            *ScriptSig                  `json:"scriptSig,omitempty"`
+		Witness              []string                    `json:"txinwitness,omitempty"`
+		Sequence             uint32                      `json:"sequence"`
+		DecodedScript        *BSHunterDecodeScriptResult `json:"decodedScript,omitempty"`
+		DecodedWitnessScript *BSHunterDecodeScriptResult `json:"decodedWitnessScript,omitempty"`
+	}{
+		Txid:                 v.Txid,
+		Vout:                 v.Vout,
+		VoutContent:          &v.VoutContent,
+		ScriptSig:            v.ScriptSig,
+		Witness:              v.Witness,
+		Sequence:             v.Sequence,
+		DecodedScript:        v.DecodedScript,
+		DecodedWitnessScript: v.DecodedWitnessScript,
+	}
+
+	needScriptSig := false
+	if toMarshal.VoutContent.ScriptPubKey.Type == "nonstandard" {
+		needScriptSig = true
+	}
+	if toMarshal.DecodedScript != nil && toMarshal.DecodedScript.Type == "nonstandard" {
+		needScriptSig = true
+	}
+	if !needScriptSig {
+		//toMarshal.ScriptSig = nil
+	}
+
+	needWitness := false
+	if toMarshal.VoutContent.ScriptPubKey.Type == "witness_unknown" {
+		needWitness = true
+	}
+	if toMarshal.DecodedScript != nil && toMarshal.DecodedScript.Type == "witness_unknown" {
+		needWitness = true
+	}
+	if toMarshal.DecodedWitnessScript != nil && toMarshal.DecodedWitnessScript.Type == "nonstandard" {
+		needWitness = true
+	}
+
+	if !needWitness {
+		//toMarshal.Witness = []string{}
+	}
+
+	return json.Marshal(toMarshal)
+}
+
+func (v *BSHunterTxResult) MarshalJSON() ([]byte, error) {
+	toMarshal := struct {
+		Txid     string         `json:"txid"`
+		Hash     string         `json:"hash,omitempty"`
+		Size     int32          `json:"size,omitempty"`
+		Vsize    int32          `json:"vsize,omitempty"`
+		Weight   int32          `json:"weight,omitempty"`
+		Version  uint32         `json:"version"`
+		LockTime uint32         `json:"locktime"`
+		Vin      []BSHunterVin  `json:"vin"`
+		Vout     []BSHunterVout `json:"vout"`
+	}{
+		Txid:     v.Txid,
+		Hash:     v.Hash,
+		Size:     v.Size,
+		Vsize:    v.Size,
+		Weight:   v.Weight,
+		Version:  v.Version,
+		LockTime: v.LockTime,
+		Vin:      v.Vin,
+		Vout:     v.Vout,
+	}
+	return json.Marshal(toMarshal)
+}
+
+func (v *BSHunterScriptPubKeyResult) MarshalJSON() ([]byte, error) {
+	/*
+		NonStandardTy:         "nonstandard",
+		PubKeyTy:              "pubkey",
+		PubKeyHashTy:          "pubkeyhash",
+		WitnessV0PubKeyHashTy: "witness_v0_keyhash",
+		ScriptHashTy:          "scripthash",
+		WitnessV0ScriptHashTy: "witness_v0_scripthash",
+		MultiSigTy:            "multisig",
+		NullDataTy:            "nulldata",
+		WitnessUnknownTy:      "witness_unknown",
+	*/
+
+	// For BSHunterTx2
+	if true {
+		toMarshal := struct {
+			Asm       string   `json:"asm"`
+			Hex       string   `json:"hex,omitempty"`
+			ReqSigs   int32    `json:"reqSigs,omitempty"`
+			Type      string   `json:"type"`
+			Addresses []string `json:"addresses,omitempty"`
+		}{
+			Asm:       v.Asm,
+			Hex:       v.Hex,
+			ReqSigs:   v.ReqSigs,
+			Type:      v.Type,
+			Addresses: v.Addresses,
+		}
+		return json.Marshal(toMarshal)
+	}
+
+	if v.Type == "nonstandard" {
+		toMarshal := struct {
+			Asm       string   `json:"asm"`
+			Hex       string   `json:"hex,omitempty"`
+			ReqSigs   int32    `json:"reqSigs,omitempty"`
+			Type      string   `json:"type"`
+			Addresses []string `json:"addresses,omitempty"`
+		}{
+			Asm:       v.Asm,
+			Hex:       v.Hex,
+			ReqSigs:   v.ReqSigs,
+			Type:      v.Type,
+			Addresses: v.Addresses,
+		}
+		return json.Marshal(toMarshal)
+	} else if v.Type == "nulldata" {
+		toMarshal := struct {
+			Asm       string   `json:"asm"`
+			ReqSigs   int32    `json:"reqSigs,omitempty"`
+			Type      string   `json:"type"`
+			Addresses []string `json:"addresses,omitempty"`
+		}{
+			Asm:       v.Asm,
+			ReqSigs:   v.ReqSigs,
+			Type:      v.Type,
+			Addresses: v.Addresses,
+		}
+		return json.Marshal(toMarshal)
+	} else {
+		toMarshal := struct {
+			ReqSigs   int32    `json:"reqSigs,omitempty"`
+			Type      string   `json:"type"`
+			Addresses []string `json:"addresses,omitempty"`
+		}{
+			ReqSigs:   v.ReqSigs,
+			Type:      v.Type,
+			Addresses: v.Addresses,
+		}
+		return json.Marshal(toMarshal)
+	}
+}
+
+func (v *BSHunterDecodeScriptResult) MarshalJSON() ([]byte, error) {
+	/*
+		NonStandardTy:         "nonstandard",
+		PubKeyTy:              "pubkey",
+		PubKeyHashTy:          "pubkeyhash",
+		WitnessV0PubKeyHashTy: "witness_v0_keyhash",
+		ScriptHashTy:          "scripthash",
+		WitnessV0ScriptHashTy: "witness_v0_scripthash",
+		MultiSigTy:            "multisig",
+		WitnessUnknownTy:      "witness_unknown",
+	*/
+
+	// For BSHunterTx2
+	if true {
+		toMarshal := struct {
+			Asm       string   `json:"asm"`
+			ReqSigs   int32    `json:"reqSigs,omitempty"`
+			Type      string   `json:"type"`
+			Addresses []string `json:"addresses,omitempty"`
+		}{
+			Asm:       v.Asm,
+			ReqSigs:   v.ReqSigs,
+			Type:      v.Type,
+			Addresses: v.Addresses,
+		}
+		return json.Marshal(toMarshal)
+	}
+
+	if v.Type == "nonstandard" {
+		toMarshal := struct {
+			Asm       string   `json:"asm"`
+			ReqSigs   int32    `json:"reqSigs,omitempty"`
+			Type      string   `json:"type"`
+			Addresses []string `json:"addresses,omitempty"`
+		}{
+			Asm:       v.Asm,
+			ReqSigs:   v.ReqSigs,
+			Type:      v.Type,
+			Addresses: v.Addresses,
+		}
+		return json.Marshal(toMarshal)
+	} else {
+		toMarshal := struct {
+			ReqSigs   int32    `json:"reqSigs,omitempty"`
+			Type      string   `json:"type"`
+			Addresses []string `json:"addresses,omitempty"`
+		}{
+			ReqSigs:   v.ReqSigs,
+			Type:      v.Type,
+			Addresses: v.Addresses,
+		}
+		return json.Marshal(toMarshal)
+	}
+}
+
+type BSHunterVout struct {
+	Value        float64                    `json:"value"`
+	N            uint32                     `json:"n"`
+	ScriptPubKey BSHunterScriptPubKeyResult `json:"scriptPubKey"`
+}
+
+type BSHunterScriptPubKeyResult struct {
+	Asm         string   `json:"asm"`
+	Hex         string   `json:"hex,omitempty"`
+	ReqSigs     int32    `json:"reqSigs,omitempty"`
+	Type        string   `json:"type"`
+	Addresses   []string `json:"addresses,omitempty"`
+	Unspendable bool
+}
+
+// DecodeScriptResult models the data returned from the decodescript command.
+type BSHunterDecodeScriptResult struct {
+	Asm       string   `json:"asm"`
+	ReqSigs   int32    `json:"reqSigs,omitempty"`
+	Type      string   `json:"type"`
+	Addresses []string `json:"addresses,omitempty"`
+	P2sh      string   `json:"p2sh,omitempty"`
+}
+
 // GetBlockHeaderVerboseResult models the data from the getblockheader command when
 // the verbose flag is set.  When the verbose flag is not set, getblockheader
 // returns a hex-encoded string.
@@ -720,6 +1030,21 @@ type TxRawResult struct {
 	Confirmations uint64 `json:"confirmations,omitempty"`
 	Time          int64  `json:"time,omitempty"`
 	Blocktime     int64  `json:"blocktime,omitempty"`
+}
+
+type BSHunterTxRawResult struct {
+	Hex       string         `json:"hex"`
+	Txid      string         `json:"txid"`
+	Hash      string         `json:"hash,omitempty"`
+	Size      int32          `json:"size,omitempty"`
+	Vsize     int32          `json:"vsize,omitempty"`
+	Weight    int32          `json:"weight,omitempty"`
+	Version   uint32         `json:"version"`
+	LockTime  uint32         `json:"locktime"`
+	Vout      []BSHunterVout `json:"vout"`
+	BlockHash string         `json:"blockhash,omitempty"`
+	Time      int64          `json:"time,omitempty"`
+	Blocktime int64          `json:"blocktime,omitempty"`
 }
 
 // SearchRawTransactionsResult models the data from the searchrawtransaction

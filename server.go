@@ -3275,3 +3275,16 @@ func (sp *serverPeer) HasUndesiredUserAgent(blacklistedAgents,
 
 	return true
 }
+
+func (s *server) GetChain() *blockchain.BlockChain {
+	return s.chain
+}
+func (s *server) GetChainParams() *chaincfg.Params {
+	return s.chainParams
+}
+func (s *server) GetTxIndex() *indexers.TxIndex {
+	return s.txIndex
+}
+func (s *server) GetDb() database.DB {
+	return s.db
+}

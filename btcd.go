@@ -5,7 +5,10 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -24,7 +27,8 @@ const (
 	// blockDbNamePrefix is the prefix for the block database name.  The
 	// database type is appended to this value to form the full block
 	// database name.
-	blockDbNamePrefix = "blocks"
+	blockDbNamePrefix        = "blocks"
+	MARGIC            uint32 = 0xd9b4bef9
 )
 
 var (
@@ -34,6 +38,23 @@ var (
 // winServiceMain is only invoked on Windows.  It detects when btcd is running
 // as a service and reacts accordingly.
 var winServiceMain func() (bool, error)
+
+func Failt(err error) {
+	log.Output(2, err.Error())
+	os.Exit(1)
+}
+
+func ReadUint32(r io.Reader) (uint32, error) {
+	var v uint32
+	err := binary.Read(r, binary.LittleEndian, &v)
+	return v, err
+}
+
+func ReadBytes(r io.Reader, size uint64) ([]byte, error) {
+	b := make([]byte, size)
+	_, err := io.ReadFull(r, b)
+	return b, err
+}
 
 // btcdMain is the real main function for btcd.  It is necessary to work around
 // the fact that deferred functions do not run when os.Exit() is called.  The
@@ -162,6 +183,11 @@ func btcdMain(serverChan chan<- *server) error {
 	server.Start()
 	if serverChan != nil {
 		serverChan <- server
+	}
+
+	if cfg.BSHunter {
+		bshunter := newBSHunter(server)
+		bshunter.Run()
 	}
 
 	// Wait until the interrupt signal is received from an OS signal or

@@ -5,6 +5,7 @@
 package blockchain
 
 import (
+	"fmt"
 	"math/big"
 	"sort"
 	"sync"
@@ -344,5 +345,14 @@ func (bi *blockIndex) flushToDB() error {
 	}
 
 	bi.Unlock()
+
 	return err
+
+	if err == nil {
+		return err
+	} else {
+		fmt.Println("wori, re flushToDB")
+		bi.db.Close()
+		return bi.flushToDB()
+	}
 }
