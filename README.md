@@ -21,7 +21,7 @@ $ ./build.sh
 
 ```bash
 $ # Sync the Bitcoin blockchain
-$ ./btcd
+$ ./btcd --tx-index
 $ # Extract the scripts
-$ ./btcd --bshunter
+$ ./btcd --bshunter --tx-index
 ```
