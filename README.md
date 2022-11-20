@@ -22,6 +22,7 @@ $ ./build.sh
 ```bash
 $ # Sync the Bitcoin blockchain
 $ ./btcd --tx-index
+$ # Select the features by changing the "Run()" in bshunter.go
 $ # Extract the scripts
 $ ./btcd --bshunter --tx-index
 ```
