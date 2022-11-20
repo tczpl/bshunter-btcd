@@ -3,7 +3,7 @@ BSHunter-BTCD
 
 BSHunter-BTCD is the modified Bitcoin client ([BTCD](https://github.com/btcsuite/btcd)) in BSHunter.
 
-This is an anonymous repo for ICSE 2023 Response, in order to show our script extraction in transactions and defect tracing in Bitcoin VM. We will make more details in the future.
+This is an anonymous repository for ICSE 2023 Response, in order to show our script extraction in transactions and defect tracing in Bitcoin VM. We will make more details in the future.
 
 As for the other source codes of benchmark, please refer to [UnsafeBTC.com](https://unsafebtc.com/#/app/sourcecode).
 
