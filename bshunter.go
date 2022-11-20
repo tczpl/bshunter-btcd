@@ -538,13 +538,10 @@ func writeFile(filePath string, fileContent string) {
 	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		btcdLog.Info()
-		fmt.Println("文件打开失败", err)
+		fmt.Println("err", err)
 	}
-	//及时关闭file句柄
 	defer file.Close()
-	//写入文件时，使用带缓存的 *Writer
 	write := bufio.NewWriter(file)
 	write.WriteString(fileContent)
-	//Flush将缓存的文件真正写入到文件中
 	write.Flush()
 }
