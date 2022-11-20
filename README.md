@@ -16,3 +16,12 @@ As for the other source codes of benchmark, please refer to [UnsafeBTC.com](http
 ```bash
 $ ./build.sh
 ```
+
+## Run
+
+```bash
+$ # Sync the Bitcoin blockchain
+$ ./btcd
+$ # Extract the scripts
+$ ./btcd --bshunter
+```
